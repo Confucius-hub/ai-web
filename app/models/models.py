@@ -38,10 +38,41 @@ class User(Base):
         lazy="selectin",
     )
 
-    chat_history: Mapped[list["ChatHistory"]] = relationship(
+    chat_sessions: Mapped[list["ChatSession"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
         lazy="selectin",
+    )
+
+
+class ChatSession(Base):
+    __tablename__ = "chat_session"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True, autoincrement=True, comment="Primary key."
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(),
+        ForeignKey("user.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=False),
+        default=datetime.utcnow,
+        index=True,
+        comment="Chat session creation date.",
+    )
+
+    user: Mapped["User"] = relationship(back_populates="chat_sessions")
+
+    chat_history: Mapped[list["ChatHistory"]] = relationship(
+        back_populates="chat_session",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        order_by="ChatHistory.created_at",
     )
 
 
@@ -80,6 +111,13 @@ class ChatHistory(Base):
         JSONB, nullable=False, default=dict, comment="Extra generation metadata."
     )
 
+    session_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("chat_session.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(),
         ForeignKey("user.id", ondelete="SET NULL"),
@@ -101,7 +139,8 @@ class ChatHistory(Base):
         comment="Chat completion creation date.",
     )
 
-    user: Mapped[Optional["User"]] = relationship(back_populates="chat_history")
+    chat_session: Mapped["ChatSession"] = relationship(back_populates="chat_history")
+    user: Mapped[Optional["User"]] = relationship()
     api_key: Mapped[Optional["APIKey"]] = relationship(back_populates="chat_history")
 
 

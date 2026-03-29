@@ -25,7 +25,7 @@ import app.main as main_app
 from app.config import get_settings
 from app.database.database import get_db
 from app.ml_model.ml_model import MockLLM
-from app.models.models import APIKey, ChatHistory, User
+from app.models.models import APIKey, ChatHistory, ChatSession, User
 from app.schemas.schemas import (
     APIKeyCreatedResponse,
     APIKeyCreateRequest,
@@ -33,6 +33,8 @@ from app.schemas.schemas import (
     ChatHistoryResponse,
     ChatRequest,
     ChatResponse,
+    ChatSessionResponse,
+    ChatSessionWithHistoryResponse,
     HealthResponse,
     UserCreateRequest,
     UserResponse,
@@ -99,6 +101,29 @@ async def get_user_or_404(
     return user
 
 
+async def get_chat_session_or_404(
+    user_id: UUID,
+    session_id: int,
+    db: AsyncSession,
+    *,
+    with_history: bool = False,
+) -> ChatSession:
+    stmt = select(ChatSession).where(
+        ChatSession.id == session_id,
+        ChatSession.user_id == user_id,
+    )
+    if with_history:
+        stmt = stmt.options(selectinload(ChatSession.chat_history))
+
+    chat_session = (await db.execute(stmt)).scalar_one_or_none()
+    if chat_session is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Chat session was not found.",
+        )
+    return chat_session
+
+
 def ensure_user_access(user_id: UUID, api_key: APIKey) -> None:
     if api_key.owner_id != user_id:
         raise HTTPException(
@@ -110,13 +135,15 @@ def ensure_user_access(user_id: UUID, api_key: APIKey) -> None:
 def schedule_chat_audit(
     chat_id: int,
     user_id: UUID,
+    session_id: int,
     *,
     streamed: bool,
 ) -> None:
     logger.info(
-        "Chat `%s` for user `%s` was stored. Streamed=%s",
+        "Chat `%s` for user `%s` in session `%s` was stored. Streamed=%s",
         chat_id,
         user_id,
+        session_id,
         streamed,
     )
 
@@ -127,6 +154,7 @@ def build_chat_metadata(
     return {
         "model_name": model.model_name,
         "message_count": request.message_count,
+        "session_id": request.session_id,
         "streamed": streamed,
     }
 
@@ -249,6 +277,63 @@ async def list_chat_history(
 
 
 @router.post(
+    "/users/{user_id}/sessions",
+    response_model=ChatSessionResponse,
+    status_code=status.HTTP_201_CREATED,
+    tags=["chat"],
+)
+async def create_chat_session(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    api_key: APIKey = Depends(get_current_api_key),
+) -> ChatSession:
+    ensure_user_access(user_id, api_key)
+    user = await get_user_or_404(user_id, db)
+
+    chat_session = ChatSession(user_id=user.id)
+    db.add(chat_session)
+    await db.commit()
+    await db.refresh(chat_session)
+    return chat_session
+
+
+@router.get(
+    "/users/{user_id}/sessions",
+    response_model=list[ChatSessionResponse],
+    tags=["chat"],
+)
+async def list_chat_sessions(
+    user_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    api_key: APIKey = Depends(get_current_api_key),
+) -> list[ChatSession]:
+    ensure_user_access(user_id, api_key)
+    await get_user_or_404(user_id, db)
+
+    stmt = (
+        select(ChatSession)
+        .where(ChatSession.user_id == user_id)
+        .order_by(desc(ChatSession.created_at))
+    )
+    return list((await db.execute(stmt)).scalars().all())
+
+
+@router.get(
+    "/users/{user_id}/sessions/{session_id}",
+    response_model=ChatSessionWithHistoryResponse,
+    tags=["chat"],
+)
+async def get_chat_session(
+    user_id: UUID,
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    api_key: APIKey = Depends(get_current_api_key),
+) -> ChatSession:
+    ensure_user_access(user_id, api_key)
+    return await get_chat_session_or_404(user_id, session_id, db, with_history=True)
+
+
+@router.post(
     "/chat",
     response_model=ChatResponse,
     status_code=status.HTTP_200_OK,
@@ -262,6 +347,7 @@ async def chat(
     model: MockLLM = Depends(get_llm),
 ) -> ChatResponse:
     user_prompt = request.messages[-1].message
+    chat_session = await get_chat_session_or_404(api_key.owner_id, request.session_id, db)
 
     if len(user_prompt) > settings.MAX_PROMPT_LENGTH:
         raise main_app.ContextLengthExceeded(settings.MAX_PROMPT_LENGTH)
@@ -273,6 +359,7 @@ async def chat(
     )
 
     chat_entry = ChatHistory(
+        session_id=chat_session.id,
         user_id=api_key.owner_id,
         api_key_id=api_key.id,
         messages=[message.model_dump() for message in request.messages],
@@ -291,11 +378,13 @@ async def chat(
         schedule_chat_audit,
         chat_entry.id,
         api_key.owner_id,
+        chat_session.id,
         streamed=False,
     )
 
     return ChatResponse(
         id=chat_entry.id,
+        session_id=chat_session.id,
         user_id=api_key.owner_id,
         response=response_text,
         temperature=chat_entry.temperature,
@@ -313,6 +402,7 @@ async def chat_streaming(
     model: MockLLM = Depends(get_llm),
 ) -> StreamingResponse:
     user_prompt = request.messages[-1].message
+    chat_session = await get_chat_session_or_404(api_key.owner_id, request.session_id, db)
 
     if len(user_prompt) > settings.MAX_PROMPT_LENGTH:
         raise main_app.ContextLengthExceeded(settings.MAX_PROMPT_LENGTH)
@@ -328,6 +418,7 @@ async def chat_streaming(
             yield token
 
         chat_entry = ChatHistory(
+            session_id=chat_session.id,
             user_id=api_key.owner_id,
             api_key_id=api_key.id,
             messages=[message.model_dump() for message in request.messages],
@@ -341,6 +432,11 @@ async def chat_streaming(
         db.add(chat_entry)
         await db.commit()
         await db.refresh(chat_entry)
-        schedule_chat_audit(chat_entry.id, api_key.owner_id, streamed=True)
+        schedule_chat_audit(
+            chat_entry.id,
+            api_key.owner_id,
+            chat_session.id,
+            streamed=True,
+        )
 
     return StreamingResponse(stream_response(), media_type="text/plain")

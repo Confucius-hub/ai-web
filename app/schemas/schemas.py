@@ -32,6 +32,7 @@ class Message(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    session_id: int = Field(ge=1)
     messages: list[Message]
     temperature: float = Field(default=0.8, le=2.0, ge=0.0)
     max_tokens: int = Field(default=100, le=10000, ge=10)
@@ -105,6 +106,7 @@ class APIKeyCreatedResponse(APIKeyResponse):
 
 class ChatHistoryResponse(APIResponseModel):
     id: int
+    session_id: int
     user_prompt: str
     assistant_prompt: str
     messages: list[dict[str, str]]
@@ -119,12 +121,23 @@ class ChatHistoryResponse(APIResponseModel):
 
 class ChatResponse(BaseModel):
     id: int
+    session_id: int
     user_id: uuid.UUID
     response: str
     temperature: float
     max_tokens: int
     model_name: str
     created_at: datetime
+
+
+class ChatSessionResponse(APIResponseModel):
+    id: int
+    user_id: uuid.UUID
+    created_at: datetime
+
+
+class ChatSessionWithHistoryResponse(ChatSessionResponse):
+    chat_history: list[ChatHistoryResponse]
 
 
 class HealthResponse(BaseModel):
