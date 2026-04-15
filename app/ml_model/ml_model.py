@@ -2,11 +2,13 @@ import asyncio
 import logging
 import time
 
+from app.ml_model.llm_interface import LLMInterface
+
 logger = logging.getLogger(__name__)
 
 
-class MockLLM:
-    model_name = "MockLLM"
+class MockLLM(LLMInterface):
+    _model_name = "MockLLM"
 
     def __init__(self) -> None:
         logger.info("[Weights are loading].")
@@ -14,13 +16,17 @@ class MockLLM:
         logger.info("[Weights are loaded].")
         self.semaphore = asyncio.Semaphore(2)
 
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
     @staticmethod
     def _build_response_tokens(
         prompt: str, temperature: float, max_tokens: int
     ) -> list[str]:
         prompt_tokens = prompt.split() or ["<empty>"]
         generated_tokens = [
-            f"{MockLLM.model_name}[temp={temperature:.2f}]",
+            f"{MockLLM._model_name}[temp={temperature:.2f}]",
             "=>",
             *prompt_tokens,
         ]

@@ -24,7 +24,7 @@ from sqlalchemy.orm import selectinload
 import app.main as main_app
 from app.config import get_settings
 from app.database.database import get_db
-from app.ml_model.ml_model import MockLLM
+from app.ml_model.llm_interface import LLMInterface
 from app.models.models import APIKey, ChatHistory, ChatSession, User
 from app.schemas.schemas import (
     APIKeyCreatedResponse,
@@ -48,7 +48,7 @@ api_key_header = APIKeyHeader(name=settings.API_KEY_HEADER_NAME, auto_error=Fals
 bearer_security = HTTPBearer(auto_error=False)
 
 
-def get_llm() -> MockLLM:
+def get_llm() -> LLMInterface:
     return main_app.ml_model_state["ml_model"]
 
 
@@ -149,7 +149,7 @@ def schedule_chat_audit(
 
 
 def build_chat_metadata(
-    request: ChatRequest, model: MockLLM, *, streamed: bool
+    request: ChatRequest, model: LLMInterface, *, streamed: bool
 ) -> dict[str, object]:
     return {
         "model_name": model.model_name,
@@ -344,7 +344,7 @@ async def chat(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     api_key: APIKey = Depends(get_current_api_key),
-    model: MockLLM = Depends(get_llm),
+    model: LLMInterface = Depends(get_llm),
 ) -> ChatResponse:
     user_prompt = request.messages[-1].message
     chat_session = await get_chat_session_or_404(api_key.owner_id, request.session_id, db)
@@ -399,7 +399,7 @@ async def chat_streaming(
     request: ChatRequest,
     db: AsyncSession = Depends(get_db),
     api_key: APIKey = Depends(get_current_api_key),
-    model: MockLLM = Depends(get_llm),
+    model: LLMInterface = Depends(get_llm),
 ) -> StreamingResponse:
     user_prompt = request.messages[-1].message
     chat_session = await get_chat_session_or_404(api_key.owner_id, request.session_id, db)

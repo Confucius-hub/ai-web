@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.config import get_settings
+from app.ml_model.llm_interface import LLMInterface
 from app.ml_model.ml_model import MockLLM
 from app.routers.router import router
 
@@ -26,9 +27,30 @@ logger = logging.getLogger(__name__)
 ml_model_state: dict[str, Any] = {}
 
 
+def create_llm() -> LLMInterface:
+    """Создаёт LLM в зависимости от LLM_MODE в конфигурации."""
+    if settings.LLM_MODE == "real":
+        if not settings.LLM_API_KEY:
+            raise ValueError("LLM_API_KEY is required when LLM_MODE=real")
+        from app.ml_model.openrouter_llm import OpenRouterLLM
+
+        logger.info(
+            "Starting in REAL mode: provider=OpenRouter, model=%s",
+            settings.LLM_MODEL,
+        )
+        return OpenRouterLLM(
+            api_key=settings.LLM_API_KEY,
+            model=settings.LLM_MODEL,
+            base_url=settings.LLM_BASE_URL,
+        )
+    else:
+        logger.info("Starting in MOCK mode: using MockLLM")
+        return MockLLM()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    ml_model_state["ml_model"] = MockLLM()
+    ml_model_state["ml_model"] = create_llm()
     logger.info("Server is ready to accept connections.")
     yield
     ml_model_state.clear()
