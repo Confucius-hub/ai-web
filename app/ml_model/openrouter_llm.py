@@ -7,8 +7,6 @@ from app.ml_model.llm_interface import LLMInterface
 
 logger = logging.getLogger(__name__)
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
-
 
 class OpenRouterLLM(LLMInterface):
     """LLM-провайдер через OpenRouter API (OpenAI-совместимый)."""
@@ -16,8 +14,8 @@ class OpenRouterLLM(LLMInterface):
     def __init__(
         self,
         api_key: str,
-        model: str = "google/gemma-3-1b-it:free",
-        base_url: str = OPENROUTER_BASE_URL,
+        model: str,
+        base_url: str,
     ) -> None:
         self._api_key = api_key
         self._model = model
