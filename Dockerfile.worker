@@ -1,0 +1,40 @@
+# syntax=docker/dockerfile:1.7
+# # Оптимизация сборок — тот же runtime-образ, но CMD другой
+FROM python:3.11-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    UV_SYSTEM_PYTHON=1
+
+RUN pip install --no-cache-dir uv==0.5.5
+
+WORKDIR /app
+COPY pyproject.toml README.md ./
+RUN uv pip install --system --no-cache \
+    "fastapi>=0.115.0" \
+    "pydantic[email]>=2.9.0" "pydantic-settings>=2.5.0" \
+    "sqlalchemy>=2.0.35" "asyncpg>=0.29.0" "greenlet>=3.1.0" \
+    "httpx[http2]>=0.27.0" \
+    "celery>=5.4.0" "redis>=5.1.0" \
+    "python-json-logger>=2.0.7"
+
+
+FROM python:3.11-slim AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
+# SIGTERM: Celery корректно допивает текущую таску благодаря worker_shutdown_timeout
+STOPSIGNAL SIGTERM
+
+COPY --from=builder /usr/local/lib/python3.11 /usr/local/lib/python3.11
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+WORKDIR /app
+COPY app ./app
+COPY README.md ./
+
+# # Graceful Shutdown — через worker_shutdown_timeout=30 в celery_app.py
+CMD ["celery", "-A", "app.tasks.celery_app", "worker", \
+     "--loglevel=INFO", "--concurrency=2"]

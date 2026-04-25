@@ -1,0 +1,65 @@
+# Env / secrets
+.env
+.env.local
+*.env.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# uv
+.uv/
+uv.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Tests / coverage
+.coverage
+.pytest_cache/
+htmlcov/
+
+# DB / local data
+*.sqlite
+*.sqlite3
+*.db
+postgres_data/
+redis_data/
+
+# Model weights (must NOT be in repo)
+*.bin
+*.gguf
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+app/models/*.onnx
+!app/models/.gitkeep
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Docker
+*.pid
